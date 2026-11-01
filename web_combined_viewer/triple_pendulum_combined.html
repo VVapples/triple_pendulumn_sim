@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Triple pendulum combined viewer</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#10131b;color:#e8eaf0;font:13px system-ui,sans-serif}
+#layout{height:100%;display:grid;grid-template-columns:1fr 1fr;gap:3px}
+.pane{position:relative;min-width:0;background:#151a24}.view{width:100%;height:100%;display:block}
+.panel{position:absolute;top:10px;left:10px;z-index:2;padding:10px;border-radius:7px;background:#121620ed;line-height:1.35;box-shadow:0 2px 12px #0008}
+button,input{margin:2px;padding:3px 6px}.panel input[type=number]{width:58px}.info{margin-top:5px;color:#cbd2e2;max-width:330px}
+.selected{position:absolute;right:10px;bottom:10px;z-index:2;padding:9px;border-radius:7px;background:#121620ed;font:12px ui-monospace,monospace;line-height:1.45;min-width:225px}
+.hint{color:#9da6ba;font-size:11px;margin-top:5px}
+</style>
+</head>
+<body>
+<div id="layout">
+<section class="pane"><div class="panel"><b>Chaos voxels</b> <span>v1.0-combined</span><br>
+<label>threshold <input id="threshold" type="number" min="0" max="1" step=".01" value=".75"></label>
+<label>opacity <input id="opacity" type="number" min=".1" max="2" step=".05" value="1"></label>
+<button id="voxelReset">Reset camera</button><div id="voxelInfo" class="info">Loading...</div>
+<div class="hint">Click a visible voxel to update the pendulum.<br>Drag to rotate, wheel to zoom.</div></div>
+<div id="selected" class="selected">Click a voxel</div><canvas id="voxelCanvas" class="view"></canvas></section>
+<section class="pane"><div class="panel"><b>Realtime pendulum</b> <span>v1.0-combined</span><br>
+<label>dt <input id="dt" type="number" step=".001" min=".0001" value=".005"></label>
+<label>fade start <input id="fadeStart" type="number" min="0" step=".1" value="10"> fade time <input id="fadeTime" type="number" min=".01" step=".1" value="10"></label><br>
+<button id="pause">Pause</button><button id="slower">Slower</button><button id="faster">Faster</button><button id="reset">Reset</button><button id="clear">Clear trace</button>
+<div id="pendulumInfo" class="info">Waiting for voxel selection</div><div class="hint">Space: pause/resume. Left/right arrows: speed.</div></div>
+<canvas id="pendulumCanvas" class="view"></canvas></section>
+</div>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
+<script type="module">
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+import {OrbitControls} from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js";
+const data=/* EMBEDDED_DATA */{"axes":[[],[],[]],"voxels":[]};
+const q=id=>document.getElementById(id), val=id=>Number(q(id).value);
+const selected=q("selected"), voxelInfo=q("voxelInfo"), pendulumInfo=q("pendulumInfo");
+let records=data.voxels, bounds=null, groups=[], threshold=.75, opacity=1;
+function plasma(t){const s=[[13,8,135],[126,3,168],[203,71,119],[248,149,64],[240,249,33]],p=Math.max(0,Math.min(1,t))*4,i=Math.min(3,Math.floor(p)),f=p-i;return new THREE.Color((s[i][0]*(1-f)+s[i+1][0]*f)/255,(s[i][1]*(1-f)+s[i+1][1]*f)/255,(s[i][2]*(1-f)+s[i+1][2]*f)/255)}
+function edges(v){const a=[...new Set(v)].sort((x,y)=>x-y),d=a[1]-a[0];return {v:a,e:[a[0]-d/2,...a.slice(0,-1).map(x=>x+d/2),a.at(-1)+d/2]}}
+const voxelRenderer=new THREE.WebGLRenderer({canvas:q("voxelCanvas"),antialias:true}),voxelScene=new THREE.Scene(),voxelCamera=new THREE.PerspectiveCamera(42,1,.01,1000),voxelControls=new OrbitControls(voxelCamera,q("voxelCanvas")),voxelRoot=new THREE.Group(),ray=new THREE.Raycaster(),pointer=new THREE.Vector2();
+voxelRenderer.setPixelRatio(Math.min(devicePixelRatio,2));voxelRenderer.setClearColor(0x10131b);voxelScene.add(voxelRoot);voxelScene.add(new THREE.AmbientLight(0xffffff,2.4));voxelControls.enableDamping=true;
+function clearVoxels(){for(const x of groups){voxelRoot.remove(x);x.geometry.dispose();x.material.dispose()}groups=[]}
+function drawVoxels(){clearVoxels();const bx=edges(data.axes[0]),by=edges(data.axes[1]),bz=edges(data.axes[2]);bounds={bx,by,bz};const a=Math.min(...records.map(r=>r.chaos)),b=Math.max(...records.map(r=>r.chaos));for(const r of records)r.n=b>a?(r.chaos-a)/(b-a):0;const ix=Math.min(...records.map(r=>r.i)),iy=Math.min(...records.map(r=>r.j)),iz=Math.min(...records.map(r=>r.k)),buckets=Array.from({length:16},()=>[]);for(const r of records)if(r.n<threshold)buckets[Math.min(15,Math.floor(r.n/.999999*16))].push(r);const geo=new THREE.BoxGeometry(1,1,1);for(let n=0;n<16;n++){const list=buckets[n];if(!list.length)continue;const mat=new THREE.MeshBasicMaterial({color:plasma((n+.5)/16),transparent:true,opacity:Math.max(.03,(.08+.92*(1-n/15))*opacity),depthWrite:false,depthTest:false,side:THREE.DoubleSide}),mesh=new THREE.InstancedMesh(geo,mat,list.length),m=new THREE.Matrix4();for(let i=0;i<list.length;i++){const r=list[i],x=bx.e[r.i-ix],x1=bx.e[r.i-ix+1],y=by.e[r.j-iy],y1=by.e[r.j-iy+1],z=bz.e[r.k-iz],z1=bz.e[r.k-iz+1];m.makeScale(x1-x,y1-y,z1-z);m.setPosition((x+x1)/2,(y+y1)/2,(z+z1)/2);mesh.setMatrixAt(i,m)}mesh.instanceMatrix.needsUpdate=true;mesh.userData.voxelRecords=list;mesh.renderOrder=n;voxelRoot.add(mesh);groups.push(mesh)}voxelInfo.textContent=`Grid ${bx.v.length}×${by.v.length}×${bz.v.length} | visible ${buckets.reduce((x,y)=>x+y.length,0)} / ${records.length}`;fitVoxel()}
+function fitVoxel(){const s=Math.max(...[bounds.bx.e.at(-1)-bounds.bx.e[0],bounds.by.e.at(-1)-bounds.by.e[0],bounds.bz.e.at(-1)-bounds.bz.e[0]]);voxelCamera.position.set(s*1.7,s*1.5,s*1.7);voxelCamera.lookAt(0,0,0);voxelControls.target.set(0,0,0);voxelControls.update()}
+function selectVoxel(e){const r=q("voxelCanvas").getBoundingClientRect();pointer.x=(e.clientX-r.left)/r.width*2-1;pointer.y=-(e.clientY-r.top)/r.height*2+1;ray.setFromCamera(pointer,voxelCamera);const hits=ray.intersectObjects(groups,false);if(!hits.length)return;const rec=hits[0].object.userData.voxelRecords[hits[0].instanceId];if(!rec)return;selected.innerHTML=`<b>Selected voxel</b><br>theta1: ${rec.x.toFixed(5)}<br>theta2: ${rec.y.toFixed(5)}<br>theta3: ${rec.z.toFixed(5)}<br>chaos: ${rec.chaos.toFixed(5)}`;pendulumReset([rec.x,rec.y,rec.z],rec)}
+q("voxelCanvas").addEventListener("click",selectVoxel);q("threshold").onchange=()=>{threshold=val("threshold");drawVoxels()};q("opacity").onchange=()=>{opacity=val("opacity");drawVoxels()};q("voxelReset").onclick=fitVoxel;
+const pr=new THREE.WebGLRenderer({canvas:q("pendulumCanvas"),antialias:true}),ps=new THREE.Scene(),pc=new THREE.OrthographicCamera(-3.6,3.6,3.6,-3.6,.1,100),pctrl=new OrbitControls(pc,q("pendulumCanvas")),root=new THREE.Group(),rod=new THREE.Line(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({color:0x58a6ff,depthTest:false})),bob=new THREE.InstancedMesh(new THREE.SphereGeometry(.09,12,8),new THREE.MeshBasicMaterial({color:0xff4d5a,depthTest:false}),3),traceLines=Array.from({length:16},(_,i)=>new THREE.LineSegments(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({color:0x2f9cff,transparent:true,opacity:(i+1)/16,depthTest:false,depthWrite:false})));
+pc.position.set(0,0,10);pc.up.set(0,1,0);pctrl.enableRotate=false;pctrl.screenSpacePanning=true;ps.add(root);root.add(rod,bob,...traceLines);const st={q:[1.2,1.8,2.4],p:[0,0,0],t:0,run:true,speed:1,tt:[0],tp:[],e0:0};
+function mass(a){const M=Array.from({length:3},()=>Array(3).fill(0)),w=[3,2,1];for(let i=0;i<3;i++)for(let j=0;j<3;j++)M[i][j]=w[Math.max(i,j)]*Math.cos(a[i]-a[j]);return M}
+function solve(A,b){const x=A.map((r,i)=>r.slice().concat(b[i]));for(let i=0;i<3;i++){let p=i;for(let j=i+1;j<3;j++)if(Math.abs(x[j][i])>Math.abs(x[p][i]))p=j;[x[i],x[p]]=[x[p],x[i]];for(let j=i+1;j<3;j++){const f=x[j][i]/x[i][i];for(let k=i;k<4;k++)x[j][k]-=f*x[i][k]}}const o=[0,0,0];for(let i=2;i>=0;i--){let s=x[i][3];for(let j=i+1;j<3;j++)s-=x[i][j]*o[j];o[i]=s/x[i][i]}return o}
+function ham(a,p){const w=solve(mass(a),p);return .5*p.reduce((x,v,i)=>x+v*w[i],0)+9.8*(3*(1-Math.cos(a[0]))+2*(1-Math.cos(a[1]))+1*(1-Math.cos(a[2])))}
+function rhs(s){const w=solve(mass(s.q),s.p),g=[];for(let i=0;i<3;i++){const a=s.q.slice(),b=s.q.slice();a[i]+=1e-6;b[i]-=1e-6;g.push((ham(a,s.p)-ham(b,s.p))/2e-6)}return {q:w,p:g.map(x=>-x)}}
+function add(a,b,f){return {q:a.q.map((x,i)=>x+f*b.q[i]),p:a.p.map((x,i)=>x+f*b.p[i])}}function step(s,h){const a=rhs(s),b=rhs(add(s,a,h/2)),c=rhs(add(s,b,h/2)),d=rhs(add(s,c,h));return {q:s.q.map((x,i)=>x+h*(a.q[i]+2*b.q[i]+2*c.q[i]+d.q[i])/6),p:s.p.map((x,i)=>x+h*(a.p[i]+2*b.p[i]+2*c.p[i]+d.p[i])/6)}}
+function pos(a){let x=0,y=0,o=[[0,0]];for(const z of a){x+=Math.sin(z);y-=Math.cos(z);o.push([x,y])}return o}
+function pendulumReset(a,rec){st.q=a.slice();st.p=[0,0,0];st.t=0;st.run=true;st.tt=[0];st.tp=[pos(a)[3]];st.e0=ham(st.q,st.p);pendulumInfo.textContent=`theta=(${a.map(x=>x.toFixed(4)).join(", ")})`+(rec?` | chaos=${rec.chaos.toFixed(5)}`:"")}
+function drawPendulum(){const p=pos(st.q),v=[];for(const x of p)v.push(x[0],x[1],0);rod.geometry.setAttribute("position",new THREE.Float32BufferAttribute(v,3));for(let i=0;i<3;i++)bob.setMatrixAt(i,new THREE.Matrix4().setPosition(p[i+1][0],p[i+1][1],0));bob.instanceMatrix.needsUpdate=true;const fs=val("fadeStart"),ft=Math.max(.001,val("fadeTime"));while(st.tt.length>1&&st.t-st.tt[1]>fs+ft){st.tt.shift();st.tp.shift()}const bb=Array.from({length:16},()=>[]);for(let i=0;i<st.tp.length-1;i++){const age=st.t-st.tt[i],al=Math.max(0,Math.min(1,age<=fs?1:1-(age-fs)/ft)),j=Math.min(15,Math.floor(al*16)),a=st.tp[i],b=st.tp[i+1];bb[j].push(a[0],a[1],0,b[0],b[1],0)}for(let i=0;i<16;i++){traceLines[i].geometry.setAttribute("position",new THREE.Float32BufferAttribute(bb[i],3));traceLines[i].geometry.computeBoundingSphere()}const er=ham(st.q,st.p)-st.e0;pendulumInfo.textContent+=`<br>t=${st.t.toFixed(2)} | speed=${st.speed}x | energy=${er.toExponential(3)} | trace=${st.tp.length}`}
+q("pause").onclick=()=>{st.run=!st.run;q("pause").textContent=st.run?"Pause":"Resume"};q("faster").onclick=()=>st.speed=Math.min(64,st.speed*2);q("slower").onclick=()=>st.speed=Math.max(.125,st.speed/2);q("reset").onclick=()=>pendulumReset(st.q,null);q("clear").onclick=()=>{st.tt=[st.t];st.tp=[pos(st.q)[3]]};addEventListener("keydown",e=>{if(e.code==="Space")st.run=!st.run;if(e.key==="ArrowRight")st.speed=Math.min(64,st.speed*2);if(e.key==="ArrowLeft")st.speed=Math.max(.125,st.speed/2)});
+function resize(){for(const [r,c] of [[voxelRenderer,q("voxelCanvas")],[pr,q("pendulumCanvas")]]){r.setSize(c.clientWidth,c.clientHeight,false)}voxelCamera.aspect=q("voxelCanvas").clientWidth/q("voxelCanvas").clientHeight;voxelCamera.updateProjectionMatrix();const ar=q("pendulumCanvas").clientWidth/q("pendulumCanvas").clientHeight,s=3.6;pc.left=-s*ar;pc.right=s*ar;pc.top=s;pc.bottom=-s;pc.updateProjectionMatrix()}addEventListener("resize",resize);resize();drawVoxels();pendulumReset(st.q,{chaos:0});
+function animate(){requestAnimationFrame(animate);if(st.run)for(let i=0;i<Math.max(1,Math.round(4*st.speed));i++){const n=step(st,val("dt"));if(!n.q.every(Number.isFinite))st.run=false;else{st.q=n.q;st.p=n.p;st.t+=val("dt");st.tt.push(st.t);st.tp.push(pos(st.q)[3])}}drawPendulum();voxelControls.update();voxelRenderer.render(voxelScene,voxelCamera);pctrl.update();pr.render(ps,pc)}animate();
+</script></body></html>

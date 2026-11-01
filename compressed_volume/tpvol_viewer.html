@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Triple pendulum chaos volume (.tpvol)</title>
+<style>
+html, body { margin: 0; height: 100%; overflow: hidden; background: #10131b; color: #e8eaf0; font: 14px system-ui, sans-serif; }
+#view { width: 100%; height: 100%; display: block; }
+#panel { position: fixed; top: 12px; left: 12px; z-index: 2; width: 325px; max-height: calc(100% - 70px); overflow-y: auto; padding: 14px; border-radius: 8px; background: rgba(18, 22, 32, .92); box-shadow: 0 3px 18px #0008; }
+label { display: block; margin-top: 9px; } input[type=file] { width: 100%; } input[type=range] { width: 135px; vertical-align: middle; }
+.ctrl-group { margin-top: 8px; padding: 6px 8px; border-radius: 6px; background: rgba(11, 14, 21, .55); }
+.ctrl-row { display: flex; align-items: center; justify-content: space-between; margin-top: 3px; font-size: 12px; color: #bfc6d7; }
+.ctrl-row input[type=range] { flex: 1; margin: 0 6px; }
+.num-in { width: 72px; background: #0b0e15; color: #e8eaf0; border: 1px solid #333b4f; border-radius: 4px; padding: 2px 4px; font: 12px ui-monospace, monospace; }
+.sub-val { font: 11px ui-monospace, monospace; color: #9da6ba; }
+button { margin-top: 9px; padding: 5px 9px; } #info { margin-top: 10px; line-height: 1.4; color: #bfc6d7; }
+#showPanelBtn { position: fixed; top: 12px; left: 12px; z-index: 2; display: none; margin: 0; padding: 6px 10px; border-radius: 6px; border: 1px solid #333b4f; background: rgba(18, 22, 32, .92); color: #e8eaf0; cursor: pointer; }
+#hidePanelBtn { margin: 0; padding: 2px 7px; font-size: 12px; float: right; }
+.hint { color: #9da6ba; font-size: 12px; margin-top: 8px; } b { color: #fff; }
+details { margin-top: 10px; } summary { cursor: pointer; color: #cfd6e6; }
+.clip label { margin-top: 5px; font-size: 12px; } .clip input[type=range] { width: 120px; }
+#hist { width: 100%; height: 70px; margin-top: 8px; background: #0b0e15; border-radius: 4px; display: block; }
+#cameraReadout { position: fixed; bottom: 10px; left: 12px; z-index: 2; padding: 8px 10px; border-radius: 6px; background: rgba(18, 22, 32, .92); color: #d7dceb; font: 12px ui-monospace, monospace; }
+#voxelReadout { position: fixed; right: 12px; bottom: 10px; z-index: 2; min-width: 270px; padding: 10px; border-radius: 6px; background: rgba(18, 22, 32, .94); color: #d7dceb; font: 12px ui-monospace, monospace; line-height: 1.45; }
+#pendulum { display: block; margin-top: 6px; background: #0b0e15; border-radius: 4px; }
+#drop { position: fixed; inset: 0; z-index: 5; display: none; align-items: center; justify-content: center; background: #10131bcc; font-size: 22px; border: 3px dashed #7f8db0; }
+.axis-x { color: #ff6b6b; } .axis-y { color: #69db7c; } .axis-z { color: #74c0fc; }
+</style>
+</head>
+<body>
+<button id="showPanelBtn" title="Shortcut: H">Show controls (H)</button>
+<div id="panel">
+  <b>Triple-pendulum chaos volume</b> <span>tpvol v1</span> <button id="hidePanelBtn" title="Shortcut: H">Hide</button>
+  <label>Open .tpvol <input id="file" type="file" accept=".tpvol"></label>
+  <div class="ctrl-group">
+    <div class="ctrl-row"><b>Hide chaos above</b> <span>norm <input id="hiNum" class="num-in" type="number" min="0" max="1" step="0.0001" value="0.7500"></span></div>
+    <div class="ctrl-row"><span class="sub-val" id="hiRaw">chaos: -</span></div>
+    <div class="ctrl-row"><span>Coarse</span><input id="hi" type="range" min="0" max="1" step="0.005" value="0.75"></div>
+    <div class="ctrl-row"><span>Fine (&pm;.02)</span><input id="hiFine" type="range" min="-0.02" max="0.02" step="0.00005" value="0"></div>
+  </div>
+  <div class="ctrl-group">
+    <div class="ctrl-row"><b>Hide chaos below</b> <span>norm <input id="loNum" class="num-in" type="number" min="0" max="1" step="0.0001" value="0.0000"></span></div>
+    <div class="ctrl-row"><span class="sub-val" id="loRaw">chaos: -</span></div>
+    <div class="ctrl-row"><span>Coarse</span><input id="lo" type="range" min="0" max="1" step="0.005" value="0"></div>
+    <div class="ctrl-row"><span>Fine (&pm;.02)</span><input id="loFine" type="range" min="-0.02" max="0.02" step="0.00005" value="0"></div>
+  </div>
+  <canvas id="hist" width="600" height="140" title="Histogram of normalized chaos (log scale); dimmed = hidden"></canvas>
+  <label>Opacity scale: <input id="opacity" type="range" min=".05" max="2" step=".05" value="1"> <span id="opacityValue">1.00</span></label>
+  <label><input id="density" type="checkbox" checked> Resolution-independent opacity</label>
+  <label><input id="smooth" type="checkbox"> Smooth colors (instead of 16 bands)</label>
+  <label><input id="showAxes" type="checkbox" checked> Show axis lines</label>
+  <label><input id="showEdges" type="checkbox" checked> Show edge lines</label>
+  <label>Render quality: <select id="quality"><option value=".5">0.5x</option><option value="1" selected>1x</option><option value="2">2x</option></select></label>
+  <details class="clip"><summary>Clip box (initial angles)</summary>
+    <div id="clipControls"></div>
+    <button id="clipReset">Reset clip</button>
+  </details>
+  <button id="reset">Reset view</button>
+  <div id="info">Open a .tpvol file (or drop it on the page).</div>
+  <div class="hint">Drag to rotate, wheel to zoom, right-drag to pan.<br>
+    Axes are initial angles in radians:
+    <span class="axis-x">x = &theta;1</span>, <span class="axis-y">y = &theta;2</span>, <span class="axis-z">z = &theta;3</span>.</div>
+</div>
+<div id="cameraReadout">Camera: -</div>
+<div id="voxelReadout">Point at a visible voxel</div>
+<div id="drop">Drop .tpvol file</div>
+<canvas id="view"></canvas>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js";
+
+const $ = id => document.getElementById(id);
+const canvas = $("view"), info = $("info"), voxelReadout = $("voxelReadout");
+window.addEventListener("error", e => { info.textContent = "Viewer error: " + e.message; });
+window.addEventListener("unhandledrejection", e => { info.textContent = "Viewer error: " + e.reason; });
+
+const renderer = new THREE.WebGLRenderer({canvas, antialias: false});
+if (!renderer.capabilities.isWebGL2) info.textContent = "WebGL2 is required.";
+renderer.setClearColor(0x10131b);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(42, 1, .01, 1000);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+const MAGIC = [84, 80, 86, 79, 76, 0, 1, 0]; // "TPVOL\0\1\0"
+const BG = [0x10/255, 0x13/255, 0x1b/255];
+const R2D = 180 / Math.PI;
+let vol = null;          // loaded volume description
+let volumeMesh = null, outline = null, hover = null, axes = null;
+const state = { lo: 0, hi: .75, opacity: 1, density: true, smooth: false, showAxes: true, showEdges: true, clipMin: [0,0,0], clipMax: [0,0,0] };
+
+// ------------------------------------------------------------------ shaders
+const vertexShader = `
+out vec3 vWorld;
+void main() {
+  vec4 w = modelMatrix * vec4(position, 1.0);
+  vWorld = w.xyz;
+  gl_Position = projectionMatrix * viewMatrix * w;
+}`;
+const fragmentShader = `
+precision highp float;
+precision highp int;
+precision highp usampler3D;
+uniform usampler3D uVol;
+uniform vec3 uBoxMin;
+uniform vec3 uVoxel;
+uniform ivec3 uClipMin;
+uniform ivec3 uClipMax;
+uniform float uLo, uHi, uOpacity, uQmax, uDensity, uSmooth;
+uniform int uMaxSteps;
+uniform vec3 uBg;
+in vec3 vWorld;
+out vec4 outColor;
+
+vec3 plasma(float t) {
+  const vec3 s0 = vec3(13.,8.,135.)/255., s1 = vec3(126.,3.,168.)/255., s2 = vec3(203.,71.,119.)/255.,
+             s3 = vec3(248.,149.,64.)/255., s4 = vec3(240.,249.,33.)/255.;
+  float p = clamp(t, 0., 1.) * 4.;
+  if (p < 1.) return mix(s0, s1, p);
+  if (p < 2.) return mix(s1, s2, p - 1.);
+  if (p < 3.) return mix(s2, s3, p - 2.);
+  return mix(s3, s4, p - 3.);
+}
+vec3 toSRGB(vec3 c) {
+  return mix(c * 12.92, 1.055 * pow(c, vec3(1. / 2.4)) - .055, step(vec3(.0031308), c));
+}
+
+void main() {
+  vec3 ro = (cameraPosition - uBoxMin) / uVoxel;
+  vec3 rd = (vWorld - cameraPosition) / uVoxel;
+  rd = sign(rd + 1e-30) * max(abs(rd), vec3(1e-9));
+  vec3 bmin = vec3(uClipMin), bmax = vec3(uClipMax + 1);
+  vec3 t0 = (bmin - ro) / rd, t1 = (bmax - ro) / rd;
+  vec3 tsm = min(t0, t1), tbg = max(t0, t1);
+  float tn = max(max(tsm.x, tsm.y), max(tsm.z, 0.));
+  float tf = min(min(tbg.x, tbg.y), tbg.z);
+  if (tn >= tf) discard;
+  vec3 p = ro + rd * tn;
+  ivec3 stp = ivec3(sign(rd));
+  ivec3 cell = clamp(ivec3(floor(p + vec3(stp) * 1e-4)), uClipMin, uClipMax);
+  vec3 tDelta = abs(1. / rd);
+  vec3 tMax = (vec3(cell) + step(0., rd) - ro) / rd;
+  vec4 acc = vec4(0.);
+  for (int s = 0; s < 16384; s++) {
+    if (s >= uMaxSteps) break;
+    uint q = texelFetch(uVol, ivec3(cell.z, cell.y, cell.x), 0).r;
+    if (q > 0u) {
+      float n = (float(q) - 1.) / (uQmax - 1.);
+      if (n >= uLo && n <= uHi) {
+        float b = min(15., floor(n / .999999 * 16.));
+        float tc = uSmooth > .5 ? n : (b + .5) / 16.;
+        float base = uSmooth > .5 ? .08 + .92 * (1. - n) : .08 + .92 * (1. - b / 15.);
+        float a = clamp(max(.03, base * uOpacity), 0., .999);
+        a = 1. - pow(1. - a, uDensity);
+        vec3 c = toSRGB(plasma(tc));
+        acc.rgb += (1. - acc.a) * a * c;
+        acc.a += (1. - acc.a) * a;
+        if (acc.a > .99) break;
+      }
+    }
+    if (tMax.x < tMax.y && tMax.x < tMax.z) {
+      cell.x += stp.x; tMax.x += tDelta.x;
+      if (cell.x < uClipMin.x || cell.x > uClipMax.x) break;
+    } else if (tMax.y < tMax.z) {
+      cell.y += stp.y; tMax.y += tDelta.y;
+      if (cell.y < uClipMin.y || cell.y > uClipMax.y) break;
+    } else {
+      cell.z += stp.z; tMax.z += tDelta.z;
+      if (cell.z < uClipMin.z || cell.z > uClipMax.z) break;
+    }
+  }
+  outColor = vec4(acc.rgb + (1. - acc.a) * uBg, 1.);
+}`;
+
+// ------------------------------------------------------------------ loading
+function parseTpvol(buffer) {
+  const head = new Uint8Array(buffer, 0, 12);
+  for (let i = 0; i < 8; i++) if (head[i] !== MAGIC[i]) throw Error("Not a .tpvol file (bad magic).");
+  const hlen = new DataView(buffer).getUint32(8, true);
+  const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 12, hlen)));
+  const [nx, ny, nz] = header.dims, count = nx * ny * nz, offset = 12 + hlen;
+  const Arr = header.bits === 16 ? Uint16Array : Uint8Array;
+  if (buffer.byteLength < offset + count * Arr.BYTES_PER_ELEMENT) throw Error("File is truncated.");
+  const codes = new Arr(buffer, offset, count);
+  const G = header.source_grid, f = header.factor;
+  const d = (header.angle_max - header.angle_min) / (G - 1);   // source grid spacing
+  return { header, codes, dims: [nx, ny, nz], G, f, d, qmax: header.qmax,
+           boxMin: header.angle_min - d / 2, voxel: f * d };
+}
+
+function setVolume(v) {
+  vol = v;
+  const [nx, ny, nz] = v.dims;
+  const gl = renderer.getContext();
+  const max3d = gl.getParameter(gl.MAX_3D_TEXTURE_SIZE);
+  if (Math.max(nx, ny, nz) > max3d) throw Error(`Volume ${nx}^3 exceeds this GPU's 3D texture limit (${max3d}). Re-compress with a smaller --target-size.`);
+  if (volumeMesh) { scene.remove(volumeMesh); volumeMesh.material.uniforms.uVol.value.dispose(); volumeMesh.material.dispose(); volumeMesh.geometry.dispose(); }
+  for (const o of [outline, hover, axes]) if (o) { scene.remove(o); o.geometry.dispose(); }
+
+  const tex = new THREE.Data3DTexture(v.codes, nz, ny, nx);
+  tex.format = THREE.RedIntegerFormat;
+  tex.type = v.header.bits === 16 ? THREE.UnsignedShortType : THREE.UnsignedByteType;
+  tex.internalFormat = v.header.bits === 16 ? "R16UI" : "R8UI";
+  tex.minFilter = tex.magFilter = THREE.NearestFilter;
+  tex.unpackAlignment = 1;
+  tex.needsUpdate = true;
+
+  const size = new THREE.Vector3(nx, ny, nz).multiplyScalar(v.voxel);
+  const boxMin = new THREE.Vector3(v.boxMin, v.boxMin, v.boxMin);
+  const material = new THREE.ShaderMaterial({
+    glslVersion: THREE.GLSL3, vertexShader, fragmentShader, side: THREE.BackSide,
+    depthWrite: false, depthTest: false,
+    uniforms: {
+      uVol: {value: tex}, uBoxMin: {value: boxMin}, uVoxel: {value: new THREE.Vector3(v.voxel, v.voxel, v.voxel)},
+      uClipMin: {value: new THREE.Vector3()}, uClipMax: {value: new THREE.Vector3()},
+      uLo: {value: 0}, uHi: {value: 1}, uOpacity: {value: 1}, uQmax: {value: v.qmax},
+      uDensity: {value: 1}, uSmooth: {value: 0}, uMaxSteps: {value: 1}, uBg: {value: new THREE.Vector3(...BG)},
+    },
+  });
+  volumeMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material);
+  volumeMesh.scale.copy(size);
+  volumeMesh.position.copy(boxMin).addScaledVector(size, .5);
+  volumeMesh.frustumCulled = false;
+  scene.add(volumeMesh);
+
+  outline = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)),
+    new THREE.LineBasicMaterial({color: 0x56607a, transparent: true, opacity: .6, depthTest: false}));
+  outline.scale.copy(size); outline.position.copy(volumeMesh.position); outline.renderOrder = 2;
+  outline.visible = state.showEdges;
+  scene.add(outline);
+
+  const L = size.x * 1.08, axisPts = [], axisCols = [];
+  for (const [dir, col] of [[[1,0,0],[1,.42,.42]], [[0,1,0],[.41,.86,.49]], [[0,0,1],[.45,.75,.99]]]) {
+    axisPts.push(...boxMin.toArray(), boxMin.x + dir[0]*L, boxMin.y + dir[1]*L, boxMin.z + dir[2]*L);
+    axisCols.push(...col, ...col);
+  }
+  const ag = new THREE.BufferGeometry();
+  ag.setAttribute("position", new THREE.Float32BufferAttribute(axisPts, 3));
+  ag.setAttribute("color", new THREE.Float32BufferAttribute(axisCols, 3));
+  axes = new THREE.LineSegments(ag, new THREE.LineBasicMaterial({vertexColors: true, depthTest: false}));
+  axes.renderOrder = 3; axes.visible = state.showAxes; scene.add(axes);
+
+  hover = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)),
+    new THREE.LineBasicMaterial({color: 0xffffff, depthTest: false}));
+  hover.scale.setScalar(v.voxel); hover.visible = false; hover.renderOrder = 4;
+  scene.add(hover);
+
+  // histogram of codes (one pass)
+  const hist = new Float64Array(v.qmax + 1);
+  const c = v.codes;
+  for (let i = 0; i < c.length; i++) hist[c[i]]++;
+  v.hist = hist;
+  v.valid = c.length - hist[0];
+
+  state.clipMin = [0, 0, 0]; state.clipMax = [nx - 1, ny - 1, nz - 1];
+  buildClipControls();
+  updateUniforms();
+  fitCamera();
+}
+
+// ------------------------------------------------------------------ helpers
+function axisAngle(axis, idx) {     // centre angle and range of an output index
+  const lo = idx * vol.f, hi = Math.min(vol.G - 1, (idx + 1) * vol.f - 1);
+  const a = vol.header.angle_min;
+  return { lo: a + lo * vol.d, hi: a + hi * vol.d, mid: a + (lo + hi) / 2 * vol.d, srcLo: lo, srcHi: hi };
+}
+function decode(q) {
+  const h = vol.header;
+  return h.chaos_min + (q - 1) / (vol.qmax - 1) * (h.chaos_max - h.chaos_min);
+}
+function isVisibleCode(q) {
+  if (!q) return false;
+  const n = (q - 1) / (vol.qmax - 1);
+  return n >= state.lo && n <= state.hi;
+}
+
+function updateThresholdReadouts() {
+  $("hiNum").value = state.hi.toFixed(4);
+  $("loNum").value = state.lo.toFixed(4);
+  if (vol) {
+    const h = vol.header, span = h.chaos_max - h.chaos_min;
+    $("hiRaw").textContent = `chaos <= ${(h.chaos_min + state.hi * span).toFixed(6)}`;
+    $("loRaw").textContent = `chaos >= ${(h.chaos_min + state.lo * span).toFixed(6)}`;
+  }
+}
+
+function updateUniforms() {
+  updateThresholdReadouts();
+  if (!vol) return;
+  const u = volumeMesh.material.uniforms;
+  u.uLo.value = state.lo; u.uHi.value = state.hi; u.uOpacity.value = state.opacity;
+  u.uSmooth.value = state.smooth ? 1 : 0;
+  u.uDensity.value = state.density ? Math.min(1, 64 / Math.max(...vol.dims)) : 1;
+  u.uClipMin.value.set(...state.clipMin); u.uClipMax.value.set(...state.clipMax);
+  u.uMaxSteps.value = state.clipMax.reduce((s, m, i) => s + m - state.clipMin[i] + 1, 0) + 3;
+  drawHistogram(); updateInfo();
+}
+
+function updateInfo() {
+  const h = vol.header, [nx, ny, nz] = vol.dims;
+  const qlo = Math.ceil(state.lo * (vol.qmax - 1) + 1 - 1e-9);
+  let visible = 0;
+  for (let q = Math.max(1, qlo); q <= vol.qmax; q++) if (isVisibleCode(q)) visible += vol.hist[q];
+  info.innerHTML =
+    `Source: ${h.source}<br>Source grid: ${h.source_grid}<sup>3</sup> &rarr; shown ${nx} &times; ${ny} &times; ${nz}` +
+    (vol.f > 1 ? ` (${h.reduce} of ${vol.f}<sup>3</sup> blocks)` : "") +
+    `<br>Valid voxels: ${vol.valid.toLocaleString()}` +
+    `<br>Chaos range: ${h.chaos_min.toPrecision(5)} - ${h.chaos_max.toPrecision(5)}` +
+    `<br>Visible (chaos range): ${visible.toLocaleString()} / ${vol.valid.toLocaleString()}`;
+}
+
+function plasmaCss(t) {
+  const s = [[13,8,135],[126,3,168],[203,71,119],[248,149,64],[240,249,33]];
+  const p = Math.max(0, Math.min(1, t)) * 4, i = Math.min(3, Math.floor(p)), f = p - i;
+  return `rgb(${[0, 1, 2].map(k => Math.round(s[i][k] * (1 - f) + s[i + 1][k] * f)).join(",")})`;
+}
+function drawHistogram() {
+  const cv = $("hist"), g = cv.getContext("2d"), W = cv.width, H = cv.height, bins = 120;
+  g.clearRect(0, 0, W, H);
+  if (!vol) return;
+  const counts = new Float64Array(bins);
+  for (let q = 1; q <= vol.qmax; q++) {
+    const n = (q - 1) / (vol.qmax - 1);
+    counts[Math.min(bins - 1, Math.floor(n * bins))] += vol.hist[q];
+  }
+  const maxLog = Math.log10(1 + Math.max(...counts));
+  for (let b = 0; b < bins; b++) {
+    const n0 = b / bins, n1 = (b + 1) / bins, h = maxLog ? Math.log10(1 + counts[b]) / maxLog * (H - 4) : 0;
+    const shown = n1 > state.lo && n0 < state.hi;
+    g.globalAlpha = shown ? 1 : .22;
+    g.fillStyle = plasmaCss((n0 + n1) / 2);
+    g.fillRect(b * W / bins, H - h, W / bins + .5, h);
+  }
+  g.globalAlpha = 1; g.fillStyle = "#fff";
+  g.fillRect(state.lo * W - 1, 0, 2, H); g.fillRect(Math.min(W - 2, state.hi * W - 1), 0, 2, H);
+}
+
+function buildClipControls() {
+  const box = $("clipControls"); box.innerHTML = "";
+  const names = ["&theta;1 (x)", "&theta;2 (y)", "&theta;3 (z)"];
+  for (let a = 0; a < 3; a++) {
+    for (const which of ["min", "max"]) {
+      const lab = document.createElement("label");
+      const n = vol.dims[a] - 1, val = which === "min" ? state.clipMin[a] : state.clipMax[a];
+      lab.innerHTML = `${names[a]} ${which}: <input type="range" min="0" max="${n}" step="1" value="${val}"> <span></span>`;
+      const input = lab.querySelector("input"), span = lab.querySelector("span");
+      const show = () => {
+        const ang = axisAngle(a, Number(input.value));
+        span.textContent = (which === "min" ? ang.lo : ang.hi).toFixed(3);
+      };
+      input.oninput = () => {
+        let x = Number(input.value);
+        if (which === "min") { x = Math.min(x, state.clipMax[a]); state.clipMin[a] = x; }
+        else { x = Math.max(x, state.clipMin[a]); state.clipMax[a] = x; }
+        input.value = x; show(); updateUniforms();
+      };
+      show(); box.appendChild(lab);
+    }
+  }
+}
+
+function fitCamera() {
+  if (!vol) return;
+  const size = Math.max(...vol.dims) * vol.voxel, center = volumeMesh.position.clone();
+  camera.position.copy(center).add(new THREE.Vector3(size * 1.7, size * 1.5, size * 1.7));
+  camera.lookAt(center); controls.target.copy(center); controls.update();
+}
+
+// ------------------------------------------------------------------ picking
+const raycaster = new THREE.Raycaster(), pointer = new THREE.Vector2();
+function pickVoxel(event) {
+  const rect = canvas.getBoundingClientRect();
+  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  const o = raycaster.ray.origin, dir = raycaster.ray.direction;
+  const ro = [0, 1, 2].map(i => (o.getComponent(i) - vol.boxMin) / vol.voxel);
+  const rd = [0, 1, 2].map(i => { const r = dir.getComponent(i) / vol.voxel; return Math.abs(r) < 1e-12 ? 1e-12 : r; });
+  let tn = 0, tf = Infinity;
+  for (let i = 0; i < 3; i++) {
+    let t0 = (state.clipMin[i] - ro[i]) / rd[i], t1 = (state.clipMax[i] + 1 - ro[i]) / rd[i];
+    if (t0 > t1) [t0, t1] = [t1, t0];
+    tn = Math.max(tn, t0); tf = Math.min(tf, t1);
+  }
+  if (tn >= tf) return null;
+  const stp = rd.map(Math.sign);
+  const cell = [0, 1, 2].map(i => Math.min(state.clipMax[i], Math.max(state.clipMin[i], Math.floor(ro[i] + rd[i] * tn + stp[i] * 1e-4))));
+  const tDelta = rd.map(r => Math.abs(1 / r));
+  const tMax = [0, 1, 2].map(i => (cell[i] + (rd[i] > 0 ? 1 : 0) - ro[i]) / rd[i]);
+  const [, ny, nz] = vol.dims;
+  for (let s = 0; s < 20000; s++) {
+    const q = vol.codes[(cell[0] * ny + cell[1]) * nz + cell[2]];
+    if (isVisibleCode(q)) return { cell: cell.slice(), q };
+    const a = tMax[0] < tMax[1] ? (tMax[0] < tMax[2] ? 0 : 2) : (tMax[1] < tMax[2] ? 1 : 2);
+    cell[a] += stp[a]; tMax[a] += tDelta[a];
+    if (cell[a] < state.clipMin[a] || cell[a] > state.clipMax[a]) return null;
+  }
+  return null;
+}
+
+function drawPendulum(t1, t2, t3) {
+  const cv = $("pendulum"); if (!cv) return;
+  const g = cv.getContext("2d"), W = cv.width, H = cv.height, L = Math.min(W, H) / 6.6;
+  g.clearRect(0, 0, W, H);
+  g.strokeStyle = "#333b4f"; g.beginPath(); g.moveTo(0, H / 2); g.lineTo(W, H / 2); g.moveTo(W / 2, 0); g.lineTo(W / 2, H); g.stroke();
+  let x = W / 2, y = H / 2; const pts = [[x, y]];
+  for (const t of [t1, t2, t3]) { x += L * Math.sin(t); y += L * Math.cos(t); pts.push([x, y]); }
+  g.strokeStyle = "#cfd6e6"; g.lineWidth = 2; g.beginPath(); g.moveTo(...pts[0]);
+  for (const p of pts.slice(1)) g.lineTo(...p);
+  g.stroke();
+  const cols = ["#ff6b6b", "#69db7c", "#74c0fc"];
+  g.fillStyle = "#fff"; g.beginPath(); g.arc(...pts[0], 3, 0, 7); g.fill();
+  pts.slice(1).forEach((p, i) => { g.fillStyle = cols[i]; g.beginPath(); g.arc(...p, 5, 0, 7); g.fill(); });
+}
+
+function updateVoxelReadout(event) {
+  if (!vol) return;
+  const hit = pickVoxel(event);
+  if (!hit) { hover.visible = false; voxelReadout.textContent = "Point at a visible voxel"; return; }
+  const [i, j, k] = hit.cell, ax = [axisAngle(0, i), axisAngle(1, j), axisAngle(2, k)];
+  hover.visible = true;
+  hover.position.set(...hit.cell.map(c => vol.boxMin + (c + .5) * vol.voxel));
+  const chaos = decode(hit.q), n = (hit.q - 1) / (vol.qmax - 1);
+  const copyStr = `${ax[0].mid.toFixed(6)}, ${ax[1].mid.toFixed(6)}, ${ax[2].mid.toFixed(6)}`;
+  const line = (name, a) => `initial ${name}: ${a.mid.toFixed(6)} rad (${(a.mid * R2D).toFixed(2)}&deg;)` +
+    (vol.f > 1 ? `<br>&nbsp;&nbsp;range ${a.lo.toFixed(4)} .. ${a.hi.toFixed(4)}` : "");
+  voxelReadout.innerHTML =
+    `<b>Visible voxel</b> <span id="copyNotice" style="color:#69db7c"></span><br>` +
+    `${line("theta1", ax[0])}<br>${line("theta2", ax[1])}<br>${line("theta3", ax[2])}<br>` +
+    `chaos value${vol.f > 1 ? " (" + vol.header.reduce + ")" : ""}: ${chaos.toFixed(6)}<br>` +
+    `normalized chaos: ${n.toFixed(4)}<br>` +
+    `voxel index: (${i}, ${j}, ${k})<br>` +
+    (vol.f > 1 ? `source i ${ax[0].srcLo}-${ax[0].srcHi}, j ${ax[1].srcLo}-${ax[1].srcHi}, k ${ax[2].srcLo}-${ax[2].srcHi}<br>`
+               : `source index: (${ax[0].srcLo}, ${ax[1].srcLo}, ${ax[2].srcLo})<br>`) +
+    `<span style="color:#9da6ba">click voxel to copy: ${copyStr}</span><br>` +
+    `initial state (at rest):<canvas id="pendulum" width="160" height="160"></canvas>`;
+  drawPendulum(ax[0].mid, ax[1].mid, ax[2].mid);
+}
+
+let downPos = [0, 0];
+canvas.addEventListener("pointerdown", e => { downPos = [e.clientX, e.clientY]; });
+canvas.addEventListener("pointerup", async e => {
+  if (e.button !== 0 || Math.hypot(e.clientX - downPos[0], e.clientY - downPos[1]) > 5 || !vol) return;
+  const hit = pickVoxel(e);
+  if (!hit) return;
+  const [i, j, k] = hit.cell, ax = [axisAngle(0, i), axisAngle(1, j), axisAngle(2, k)];
+  const text = `${ax[0].mid.toFixed(6)}, ${ax[1].mid.toFixed(6)}, ${ax[2].mid.toFixed(6)}`;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.createElement("textarea");
+    ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove();
+  }
+  updateVoxelReadout(e);
+  const notice = $("copyNotice");
+  if (notice) notice.textContent = "(Copied!)";
+});
+
+// ------------------------------------------------------------------ UI wiring
+function bindThreshold(key) {
+  let base = state[key];
+  const coarse = $(key), fine = $(key + "Fine"), num = $(key + "Num");
+  coarse.oninput = () => {
+    base = Number(coarse.value);
+    fine.value = 0;
+    state[key] = base;
+    updateUniforms();
+  };
+  fine.oninput = () => {
+    state[key] = Math.max(0, Math.min(1, base + Number(fine.value)));
+    coarse.value = state[key];
+    updateUniforms();
+  };
+  num.onchange = num.oninput = () => {
+    const v = Number(num.value);
+    if (!Number.isFinite(v)) return;
+    base = state[key] = Math.max(0, Math.min(1, v));
+    coarse.value = base;
+    fine.value = 0;
+    updateUniforms();
+  };
+}
+bindThreshold("hi"); bindThreshold("lo");
+$("opacity").oninput = e => { state.opacity = Number(e.target.value); $("opacityValue").textContent = state.opacity.toFixed(2); updateUniforms(); };
+$("density").onchange = e => { state.density = e.target.checked; updateUniforms(); };
+$("smooth").onchange = e => { state.smooth = e.target.checked; updateUniforms(); };
+$("showAxes").onchange = e => { state.showAxes = e.target.checked; if (axes) axes.visible = state.showAxes; };
+$("showEdges").onchange = e => { state.showEdges = e.target.checked; if (outline) outline.visible = state.showEdges; };
+$("quality").onchange = () => resize();
+$("reset").onclick = () => fitCamera();
+function togglePanel(show) {
+  const hidden = show === undefined ? $("panel").style.display !== "none" : !show;
+  $("panel").style.display = hidden ? "none" : "block";
+  $("showPanelBtn").style.display = hidden ? "block" : "none";
+}
+$("hidePanelBtn").onclick = () => togglePanel(false);
+$("showPanelBtn").onclick = () => togglePanel(true);
+addEventListener("keydown", e => { if (e.target.tagName !== "INPUT" && (e.key === "h" || e.key === "H")) togglePanel(); });
+$("clipReset").onclick = () => { if (!vol) return; state.clipMin = [0,0,0]; state.clipMax = vol.dims.map(n => n - 1); buildClipControls(); updateUniforms(); };
+
+async function loadFile(file) {
+  info.textContent = `Loading ${file.name} (${(file.size / 1e6).toFixed(1)} MB)...`;
+  await new Promise(r => setTimeout(r, 20));
+  try { setVolume(parseTpvol(await file.arrayBuffer())); }
+  catch (err) { info.textContent = "Error: " + err.message; console.error(err); }
+}
+$("file").onchange = e => { const f = e.target.files[0]; if (f) loadFile(f); };
+const drop = $("drop");
+addEventListener("dragover", e => { e.preventDefault(); drop.style.display = "flex"; });
+addEventListener("dragleave", e => { if (e.target === drop) drop.style.display = "none"; });
+addEventListener("drop", e => { e.preventDefault(); drop.style.display = "none"; const f = e.dataTransfer.files[0]; if (f) loadFile(f); });
+
+canvas.addEventListener("pointermove", updateVoxelReadout);
+// Optional: ?src=path/to/file.tpvol (works when the page is served over http).
+const srcParam = new URLSearchParams(location.search).get("src");
+if (srcParam) {
+  info.textContent = `Fetching ${srcParam}...`;
+  fetch(srcParam).then(r => { if (!r.ok) throw Error(`HTTP ${r.status}`); return r.arrayBuffer(); })
+    .then(buf => setVolume(parseTpvol(buf)))
+    .catch(err => { info.textContent = `Could not fetch ${srcParam}: ${err.message}`; });
+}
+canvas.addEventListener("pointerleave", () => { if (hover) hover.visible = false; voxelReadout.textContent = "Point at a visible voxel"; });
+
+function updateCameraReadout() {
+  const off = camera.position.clone().sub(controls.target);
+  $("cameraReadout").textContent =
+    `Camera: azimuth ${(Math.atan2(off.z, off.x) * R2D).toFixed(1)} deg | ` +
+    `elevation ${(Math.atan2(off.y, Math.hypot(off.x, off.z)) * R2D).toFixed(1)} deg | distance ${off.length().toFixed(3)}`;
+}
+function resize() {
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * Number($("quality").value));
+  renderer.setSize(innerWidth, innerHeight, false);
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+}
+addEventListener("resize", resize); resize();
+renderer.setAnimationLoop(() => { controls.update(); updateCameraReadout(); renderer.render(scene, camera); });
+</script>
+</body>
+</html>
